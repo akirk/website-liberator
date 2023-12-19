@@ -170,12 +170,11 @@
 	import { startPlaygroundWeb, phpVars } from 'https://unpkg.com/@wp-playground/client/index.js';
 	let apiKey = localStorage.getItem( 'openAIkey' );
 	if ( ! apiKey ) {
-		apiKey = prompt( 'Please enter your OpenAI key:' );
+		apiKey = prompt( 'Please enter your OpenAI key, it will be saved to local storage:' );
 		if ( apiKey ) {
 			localStorage.setItem( 'openAIkey', apiKey );
 		}
 	}
-	// apiKey = false;
 
 	function getChatLi( name, prompt ) {
 		const li = document.createElement('li');
