@@ -329,7 +329,7 @@
 
 		let history = [];
 		try {
-			history = JSON.parse( localStorage.getItem( 'chatHistory' ) );
+			history = JSON.parse( localStorage.getItem( 'chatHistory' ) ) || [];
 		} catch ( e ) {
 			history = [];
 		}
