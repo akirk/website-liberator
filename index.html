@@ -426,7 +426,77 @@
 				],
 				model: 'gpt-3.5-turbo-16k',
 			};
+			data.functions = [
+			{
+				name: "get_page_contents",
+				description: "Get the contents of the given relative URL of the WordPress site",
+				parameters: {
+					type: "object",
+					properties: {
+						path: {
+							type: "string",
+							description: "The relative URL",
+						},
+					},
+					required: [ 'path' ],
+				}
+			},
+			{
+				name: "update_page_contents",
+				description: "Update the contents of the given relative URL of the WordPress site with the given post_content",
+				parameters: {
+					type: "object",
+					properties: {
+						path: {
+							type: "string",
+							description: "The relative URL",
+						},
+						post_content: {
+							type: "string",
+							description: "The WordPress post_content to be saved",
+						},
+					},
+					required: [ 'path', 'post_content' ],
+				}
+			},
+			{
+				name: "replace_partial_page_contents",
+				description: "Replace parts the contents of the given relative URL of the WordPress site with search and replace text",
+				parameters: {
+					type: "object",
+					properties: {
+						path: {
+							type: "string",
+							description: "The relative URL",
+						},
+						from: {
+							type: "string",
+							description: "the string to search for",
+						},
+						to: {
+							type: "string",
+							description: "the string to search to replace it with",
+						},
+					},
+					required: [ 'path', 'post_content' ],
+				}
+			},
+			{
+				name: "execute_php_code",
+				description: "Run code on the PHP side of WordPress to make the changes, using WordPress functions",
+				parameters: {
+					type: "object",
+					properties: {
+						php_code: {
+							type: "string",
+							description: "The PHP code to run",
+						},
+					},
+					required: [ 'path', 'post_content' ],
+				}
+			},
 
+			];
 			openAI( data, async function( result, code ) {
 				bot.removeChild( document.getElementById('spinner') );
 				const details = document.createElement( 'details' );
@@ -588,77 +658,6 @@
 
 		async function openAI( data, callback, errorCallback ) {
 				const endpoint = 'https://api.openai.com/v1/chat/completions';
-				data.functions = [
-				{
-					name: "get_page_contents",
-					description: "Get the contents of the given relative URL of the WordPress site",
-					parameters: {
-						type: "object",
-						properties: {
-							path: {
-								type: "string",
-								description: "The relative URL",
-							},
-						},
-						required: [ 'path' ],
-					}
-				},
-				{
-					name: "update_page_contents",
-					description: "Update the contents of the given relative URL of the WordPress site with the given post_content",
-					parameters: {
-						type: "object",
-						properties: {
-							path: {
-								type: "string",
-								description: "The relative URL",
-							},
-							post_content: {
-								type: "string",
-								description: "The WordPress post_content to be saved",
-							},
-						},
-						required: [ 'path', 'post_content' ],
-					}
-				},
-				{
-					name: "replace_partial_page_contents",
-					description: "Replace parts the contents of the given relative URL of the WordPress site with search and replace text",
-					parameters: {
-						type: "object",
-						properties: {
-							path: {
-								type: "string",
-								description: "The relative URL",
-							},
-							from: {
-								type: "string",
-								description: "the string to search for",
-							},
-							to: {
-								type: "string",
-								description: "the string to search to replace it with",
-							},
-						},
-						required: [ 'path', 'post_content' ],
-					}
-				},
-				{
-					name: "execute_php_code",
-					description: "Run code on the PHP side of WordPress to make the changes, using WordPress functions",
-					parameters: {
-						type: "object",
-						properties: {
-							php_code: {
-								type: "string",
-								description: "The PHP code to run",
-							},
-						},
-						required: [ 'path', 'post_content' ],
-					}
-				},
-
-				];
 
 				try {
 					document.querySelector('#status').textContent = 'Waiting for response from OpenAI...';
