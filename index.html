@@ -281,6 +281,7 @@
 		}
 		return li;
 	}
+	const openai_functions = {};
 	document.addEventListener('DOMContentLoaded', function() {
 		document.getElementById( 'messages' ).appendChild( getChatLi( 'Bot', 'Hi! Loading WordPress... Please wait!' ));
 		document.addEventListener('click', switchTabs );
@@ -326,8 +327,13 @@
 			e.target.style.height = e.target.scrollHeight + 'px';
 		} );
 
-		const history = [];
-		let historyIndex = 0;
+		let history = [];
+		try {
+			history = JSON.parse( localStorage.getItem( 'chatHistory' ) );
+		} catch ( e ) {
+			history = [];
+		}
+		let historyIndex = history.length;
 		let historyNavigation = false;
 
 		document.addEventListener("keydown", function(event) {
@@ -343,9 +349,9 @@
 				}
 			}
 
-			if (event.key === "Enter") {
-				// Save command to history
+			if (event.key === "Enter" && ! history.includes( event.target.value ) ) {
 				history.push(event.target.value);
+				localStorage.setItem( 'chatHistory', JSON.stringify( history.slice( 0, 20 ) ) );
 				historyIndex = history.length;
 			}
 
@@ -393,7 +399,6 @@
 			if ( prompt.length === 0 ) {
 				return;
 			}
-			console.log( 'submit form' );
 			const form = e.target;
 			input.value = '';
 			const b = form.querySelector('button');
@@ -417,7 +422,7 @@
 				messages: [
 					{
 						role: 'system',
-						content: 'You\'re here to help the user update their WordPress page. Instead of just telling the user what to do, use a function call to do the updates yourself. Dont ask for reconfirmations but act. Only if the user asks you to update page contents, fetch the contents first so that you know what it needs to be updated to. keep or update any html comments that might exist since they are needed for WordPresses gutenberg html. Unless the user says otherwise, the URL the instructions refer to is "'+ currentUrl + '"'
+						content: 'You\'re here as an assistant the user in customizing their WordPress site. It runs the twentytwentyfour theme. Make the changes yourself and dont ask for reconfirmations but with good intention. keep html comments that are needed for WordPresses gutenberg html. Unless the user says otherwise, the URL the instructions refer to is "'+ currentUrl + '"'
 					},
 					{
 						role: 'user',
@@ -425,11 +430,12 @@
 					}
 				],
 				model: 'gpt-3.5-turbo-16k',
+				temperature: 1
 			};
 			data.functions = [
 			{
-				name: "get_page_contents",
-				description: "Get the contents of the given relative URL of the WordPress site",
+				name: "get_page_by_path",
+				description: "The WordPress function to get the page data by the path",
 				parameters: {
 					type: "object",
 					properties: {
@@ -439,24 +445,6 @@
 						},
 					},
 					required: [ 'path' ],
-				}
-			},
-			{
-				name: "update_page_contents",
-				description: "Update the contents of the given relative URL of the WordPress site with the given post_content",
-				parameters: {
-					type: "object",
-					properties: {
-						path: {
-							type: "string",
-							description: "The relative URL",
-						},
-						post_content: {
-							type: "string",
-							description: "The WordPress post_content to be saved",
-						},
-					},
-					required: [ 'path', 'post_content' ],
 				}
 			},
 			{
@@ -475,14 +463,15 @@
 						},
 						to: {
 							type: "string",
-							description: "the string to search to replace it with",
+							description: "the string to replace it with",
 						},
 					},
 					required: [ 'path', 'post_content' ],
-				}			},
+				}
+			},
 			{
-				name: "navigate_to_page",
-				description: "Tell the user to go the specific URL",
+				name: "replace_whole_page_contents",
+				description: "Replace the whole contents of the given relative URL of the WordPress site",
 				parameters: {
 					type: "object",
 					properties: {
@@ -490,8 +479,12 @@
 							type: "string",
 							description: "The relative URL",
 						},
+						content: {
+							type: "string",
+							description: "the string to replace it with",
+						},
 					},
-					required: [ 'path' ],
+					required: [ 'path', 'post_content' ],
 				}
 			},
 			{
@@ -505,10 +498,9 @@
 							description: "The PHP code to run",
 						},
 					},
-					required: [ 'path', 'post_content' ],
+					required: [ 'php_code' ],
 				}
-			},
-
+			}
 			];
 			openAI( data, async function( result, code, goTo ) {
 				bot.removeChild( document.getElementById('spinner') );
@@ -534,190 +526,214 @@
 			}  ).then(()=>{b.disabled = false;form.disabled = false;})
 		});
 
-		const openai_functions = {
-			get_page_contents: async function( vars ) {
-				document.querySelector('#status').textContent = 'Getting page contents...';
-				vars.defaultFrontpageContent = defaultFrontpageContent;
-				const js = phpVars( vars );
-				await client.isReady;
-				let r = await client.run({
-					code: `<?php
-					require("/wordpress/wp-load.php");
-					if ( ${js.path} === '/' || ${js.path} === 'frontpage'|| ${js.path} === '/frontpage' ) {
-						$posts = get_posts( array(
-							'post_name' => 'home',
-							'post_type' => 'wp_template',
-						) );
-						if ( ! empty($posts)) {
-							$page = $posts[0];
-						} else {
+		openai_functions.get_page_by_path  = async function( vars ) {
+			document.querySelector('#status').textContent = 'Getting page contents...';
+			vars.defaultFrontpageContent = defaultFrontpageContent;
+			const js = phpVars( vars );
+			await client.isReady;
+			let r = await client.run({
+				code: `<?php
+				require("/wordpress/wp-load.php");
+				if ( ${js.path} === '/' || ${js.path} === 'frontpage'|| ${js.path} === '/frontpage' ) {
+					$posts = get_posts( array(
+					'post_name' => 'home',
+					'post_type' => 'wp_template',
+					) );
+					if ( ! empty($posts)) {
+						$page = $posts[0];
+					} else {
 							// $block_template = get_block_template('twentytwentyfour//template-home-business');
-							$page = (object) array(
-								'post_content' => ${js.defaultFrontpageContent},
-							);
-						}
-
-					} else {
-						$page = get_page_by_path( ${js.path} );
+						$page = (object) array(
+						'post_content' => ${js.defaultFrontpageContent},
+						);
 					}
-					echo $page->post_content;
-					`
-				});
-				console.log(r, r.text);
-				return r.text;
-			},
 
-			update_page_contents: async function( vars ) {
-				document.querySelector('#status').textContent = 'Updating page contents...';
-				const js = phpVars( vars );
-				await client.isReady;
-				return await client.run({
-					code: `<?php
-					require("/wordpress/wp-load.php");
-					if ( ${js.path} === '/' || ${js.path} === 'frontpage' || ${js.path} === '/frontpage' ) {
-						register_post_type('wp_template');
-						register_taxonomy('wp_theme','wp_template');
-						$posts = get_posts( array(
-							'post_name' => 'home',
-							'post_type' => 'wp_template',
-						) );
-						if ( ! empty( $posts ) ) {
-							$page = $posts[0];
-							$page->post_content = ${js.post_content};
-							$id = wp_update_post( $page );
-						} else {
-							$data = array(
-								'post_content'=> ${js.post_content},
-								'post_title' => 'Blog Home',
-								'post_name' => 'home',
-								'post_status' => 'publish',
-								'post_type' => 'wp_template',
-								'meta_input' => array( 'origin' => 'theme' ),
-							);
-							$page = get_page_by_path( 'home', ARRAY_A, 'wp_template');
-							if ( $page ) {
-								$data['ID'] = $page['ID'];
-							}
-							$id = wp_insert_post( $data );
-							if ( ! is_wp_error( $id ) ) {
-								wp_set_post_terms( $id, 'twentytwentyfour', 'wp_theme' );
-							}
-						}
-					} else {
-						$page = get_page_by_path( ${js.path} );
-						$page->post_content = ${js.post_content};
-						$id = wp_update_post( $page );
-					}
-					echo ${js.post_content};
-					`
-				}).text;
-
-			},
-			navigate_to_page: async function( vars ) {
-				await client.isReady;
-				console.log( vars.path );
-				client.goTo( vars.path );
-			},
-			replace_partial_page_contents: async function( vars ) {
-				document.querySelector('#status').textContent = 'Replacing page contents...';
-				vars.defaultFrontpageContent = defaultFrontpageContent;
-				const js = phpVars( vars );
-				await client.isReady;
-				return await client.run({
-					code: `<?php
-					require("/wordpress/wp-load.php");
-					if ( ${js.path} === '/' || ${js.path} === 'frontpage' || ${js.path} === '/frontpage' ) {
-						register_post_type('wp_template');
-						register_taxonomy('wp_theme','wp_template');
-						$posts = get_posts( array(
-							'post_name' => 'home',
-							'post_type' => 'wp_template',
-						) );
-						if ( ! empty( $posts ) ) {
-							$page = $posts[0];
-							$page->post_content = str_replace( ${js.from}, ${js.to}, $page->post_content );
-							$id = wp_update_post( $page );
-						} else {
-							$data = array(
-								'post_content'=> str_replace( ${js.from}, ${js.to}, ${js.defaultFrontpageContent} ),
-								'post_title' => 'Blog Home',
-								'post_name' => 'home',
-								'post_status' => 'publish',
-								'post_type' => 'wp_template',
-								'meta_input' => array( 'origin' => 'theme' ),
-							);
-							$page = get_page_by_path( 'home', ARRAY_A, 'wp_template');
-							if ( $page ) {
-								$data['ID'] = $page['ID'];
-							}
-							$id = wp_insert_post( $data );
-							if ( ! is_wp_error( $id ) ) {
-								wp_set_post_terms( $id, 'twentytwentyfour', 'wp_theme' );
-							}
-						}
-					} else {
-						$page = get_page_by_path( ${js.path} );
+				} else {
+					$page = get_page_by_path( ${js.path} );
+				}
+				echo json_encode( $page );
+				`
+			});
+			return r.text;
+		};
+		openai_functions.navigate_to_page = async function( vars ) {
+			await client.isReady;
+			client.goTo( vars.path );
+			return 'User is now on ' + vars.path;
+		};
+		openai_functions.replace_partial_page_contents = async function( vars ) {
+			document.querySelector('#status').textContent = 'Replacing partial page contents...';
+			vars.defaultFrontpageContent = defaultFrontpageContent;
+			const js = phpVars( vars );
+			await client.isReady;
+			return await client.run({
+				code: `<?php
+				require("/wordpress/wp-load.php");
+				if ( ${js.path} === '/' || ${js.path} === 'frontpage' || ${js.path} === '/frontpage' ) {
+					register_post_type('wp_template');
+					register_taxonomy('wp_theme','wp_template');
+					$posts = get_posts( array(
+					'post_name' => 'home',
+					'post_type' => 'wp_template',
+					) );
+					if ( ! empty( $posts ) ) {
+						$page = $posts[0];
 						$page->post_content = str_replace( ${js.from}, ${js.to}, $page->post_content );
 						$id = wp_update_post( $page );
-					}
-					echo ${js.post_content};
-					`
-				}).text;
-
-			},
-			execute_php_code: async function ( result ) {
-				console.log('Executing', result.php_code);
-				await client.isReady;
-				return await client.run({
-					code: '<?php include "wordpress/wp-load.php"; ' + result.php_code.replace( '<?php', '' ),
-				}).text || '';
-			}
-		}
-
-		async function openAI( data, callback, errorCallback ) {
-				const endpoint = 'https://api.openai.com/v1/chat/completions';
-
-				try {
-					document.querySelector('#status').textContent = 'Waiting for response from OpenAI...';
-					document.querySelector('#status').title = data.messages[data.messages.length -1].content;
-					const response = await fetch(endpoint, {
-						method: 'POST',
-						headers: {
-							'Authorization': `Bearer ${apiKey}`,
-							'Content-Type': 'application/json; charset=utf-8'
-						},
-						body: JSON.stringify(data)
-					});
-
-					const responseData = await response.json();
-					if ( responseData.choices[0].message.function_call ) {
-						data.messages.push( responseData.choices[0].message );
-						if ( openai_functions[responseData.choices[0].message.function_call.name] ) {
-							let content = '';
-							try {
-								content = await openai_functions[responseData.choices[0].message.function_call.name]( JSON.parse( responseData.choices[0].message.function_call.arguments ) );
-							} catch ( e ) {
-								console.error( 'Error:', e );
-								return errorCallback( e, responseData.choices[0].message.function_call.arguments );
-							}
-							data.messages.push( {
-								role: 'user',
-								name: responseData.choices[0].message.function_call.name,
-								content,
-							} );
-							if ( 'get_page_contents' !== responseData.choices[0].message.function_call.name ) {
-								return callback( responseData.choices[0].message.content || 'Done!', responseData.choices[0].message.function_call.arguments, responseData.choices[0].message.function_call.name === 'navigate_to_page' ? null : currentUrl );
-							}
-							return openAI( data, callback, errorCallback );
-
+					} else {
+						$data = array(
+						'post_content'=> str_replace( ${js.from}, ${js.to}, ${js.defaultFrontpageContent} ),
+						'post_title' => 'Blog Home',
+						'post_name' => 'home',
+						'post_status' => 'publish',
+						'post_type' => 'wp_template',
+						'meta_input' => array( 'origin' => 'theme' ),
+						);
+						$page = get_page_by_path( 'home', ARRAY_A, 'wp_template');
+						if ( $page ) {
+							$data['ID'] = $page['ID'];
+						}
+						$id = wp_insert_post( $data );
+						if ( ! is_wp_error( $id ) ) {
+							wp_set_post_terms( $id, 'twentytwentyfour', 'wp_theme' );
 						}
 					}
-					callback(responseData.choices[0].message.content);
-				} catch (error) {
-					console.error( 'Error:', error );
+				} else {
+					$page = get_page_by_path( ${js.path} );
+					$page->post_content = str_replace( ${js.from}, ${js.to}, $page->post_content );
+					$id = wp_update_post( $page );
 				}
-			}
+				echo ${js.post_content};
+				`
+			}).text || '';
 
+		};
+		openai_functions.replace_whole_page_contents = async function( vars ) {
+			document.querySelector('#status').textContent = 'Replacing whole page contents...';
+			vars.defaultFrontpageContent = defaultFrontpageContent;
+			const js = phpVars( vars );
+			await client.isReady;
+			return await client.run({
+				code: `<?php
+				require("/wordpress/wp-load.php");
+				if ( ${js.path} === '/' || ${js.path} === 'frontpage' || ${js.path} === '/frontpage' ) {
+					register_post_type('wp_template');
+					register_taxonomy('wp_theme','wp_template');
+					$posts = get_posts( array(
+					'post_name' => 'home',
+					'post_type' => 'wp_template',
+					) );
+					if ( ! empty( $posts ) ) {
+						$page = $posts[0];
+						$page->post_content = ${js.content};
+						$id = wp_update_post( $page );
+					} else {
+						$data = array(
+						'post_content'=> ${js.content},
+						'post_title' => 'Blog Home',
+						'post_name' => 'home',
+						'post_status' => 'publish',
+						'post_type' => 'wp_template',
+						'meta_input' => array( 'origin' => 'theme' ),
+						);
+						$page = get_page_by_path( 'home', ARRAY_A, 'wp_template');
+						if ( $page ) {
+							$data['ID'] = $page['ID'];
+						}
+						$id = wp_insert_post( $data );
+						if ( ! is_wp_error( $id ) ) {
+							wp_set_post_terms( $id, 'twentytwentyfour', 'wp_theme' );
+						}
+					}
+				} else {
+					$page = get_page_by_path( ${js.path}, ARRAY_A );
+					if ( ! $page ) {
+						$page = array(
+						'page_name' => ${js.path},
+						'post_type' => 'page',
+						'post_status' => 'publish',
+						);
+					}
+					$page['post_content'] = ${js.content};
+					$id = wp_insert_post( $page );
+				}
+				echo 'Page with id ' . $id . ' created';
+				`
+			}).text || '';
+
+		};
+		openai_functions.execute_php_code = async function ( result ) {
+			console.log('Executing', result.php_code);
+			await client.isReady;
+			return await client.run({
+				code: '<?php include "wordpress/wp-load.php"; ' + result.php_code.replace( '<?php', '' ),
+			}).text || '';
+		};
+
+		async function openAI( data, callback, errorCallback, function_calls ) {
+			if ( undefined === function_calls ) {
+				function_calls = [];
+			}
+			if ( function_calls.length > 1 && data.functions ) {
+				data.functions.push( {
+					name: "navigate_to_page",
+					description: "Tell the user to go the specific URL",
+					parameters: {
+						type: "object",
+						properties: {
+							path: {
+								type: "string",
+								description: "The relative URL",
+							},
+						},
+						required: [ 'path' ],
+					}
+				});
+			}
+			const endpoint = 'https://api.openai.com/v1/chat/completions';
+
+			try {
+				document.querySelector('#status').textContent = 'Waiting for response from OpenAI...';
+				document.querySelector('#status').title = data.messages[data.messages.length -1].content;
+				const response = await fetch(endpoint, {
+					method: 'POST',
+					headers: {
+						'Authorization': `Bearer ${apiKey}`,
+						'Content-Type': 'application/json; charset=utf-8'
+					},
+					body: JSON.stringify(data)
+				});
+
+				const responseData = await response.json();
+				if ( responseData.choices[0].message.function_call ) {
+					data.messages.push( responseData.choices[0].message );
+					if ( openai_functions[responseData.choices[0].message.function_call.name] ) {
+						let content = '';
+						try {
+							content = await openai_functions[responseData.choices[0].message.function_call.name]( JSON.parse( responseData.choices[0].message.function_call.arguments.replace(/\n/g, ' ') ) );
+						} catch ( e ) {
+							console.error( 'Error:', e );
+							return errorCallback( e, responseData.choices[0].message.function_call.arguments );
+						}
+						data.messages.push( {
+							role: 'user',
+							name: responseData.choices[0].message.function_call.name,
+							content,
+						} );
+						function_calls.push( responseData.choices[0].message.function_call.name + ' called with ' + responseData.choices[0].message.function_call.arguments );
+
+						if ( 'stop' === responseData.choices[0].message.finish_reason || function_calls.length > 3 ) {
+							return callback( responseData.choices[0].message.content || 'Done!', function_calls.join( '\n' ), responseData.choices[0].message.function_call.name === 'navigate_to_page' ? null : currentUrl );
+						}
+						return openAI( data, callback, errorCallback, function_calls );
+
+					}
+				}
+				callback( responseData.choices[0].message.content, function_calls.join( '\n' ), currentUrl);
+			} catch (error) {
+				console.error( 'Error:', error );
+			}
+		}
 
 		document.getElementById('upload-screenshot').addEventListener('submit', async function(e) {
 			e.preventDefault();
@@ -796,28 +812,23 @@
 		remoteUrl: 'https://playground.wordpress.net/remote.html',
 		blueprint: {
 			steps: [
-			// 	{
-			// 	"step": "installPlugin",
-			// 	"pluginZipFile": {
-			// 		"resource": "wordpress.org/plugins",
-			// 		"slug": "sql-buddy"
-			// 	},
-			// 	"options": {
-			// 		"activate": true
-			// 	}
-			// },
-			{
-				"step": "login",
-				"username": "admin",
-				"password": "password"
-			}
+				{
+					step: 'setSiteOptions',
+					options: {
+						permalink_structure: '/%year%/%monthnum%/%day%/%postname%/'
+					}
+				},
+				{
+					"step": "login",
+					"username": "admin",
+					"password": "password"
+				}
 			]
 		}
 	});
 	client.onNavigation((url)=>{
 		document.querySelector('#status').textContent = 'Playground: Loaded ' + url;
 		currentUrl = url;
-		console.log(url);
 	});
 	await client.isReady;
 	document.getElementById( 'messages' ).appendChild( getChatLi( 'Bot', 'Ready! How can I help you?' ));
@@ -861,6 +872,7 @@
 		});
 		client.goTo('/');
 	}
+	console.log(await openai_functions.replace_whole_page_contents( { "path": "/about-cars", "content": "<!-- wp:paragraph -->\n<p>Welcome to our Cars page!</p>\n<!-- /wp:paragraph -->" }));
 
 
 </script>
