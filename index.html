@@ -46,7 +46,9 @@
 		#messages li {
 			list-style-type: none;
 			background: white;
-			margin-bottom: .5em;
+			padding: .3em;
+			margin: .3em -.5em;
+			border-radius: 5px;
 		}
 		#messages li:first-child {
 			font-weight: bold;
@@ -360,7 +362,7 @@
 						content: prompt
 					}
 				],
-				model: 'gpt-3.5-turbo',
+				model: 'gpt-3.5-turbo-16k',
 			};
 
 			openAI( data, async function( result, code ) {
