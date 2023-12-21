@@ -417,7 +417,7 @@
 				messages: [
 					{
 						role: 'system',
-						content: 'You\'re here to help the user update their WordPress page. Instead of just telling the user what to do, use a function call to do the updates yourself. Dont ask for reconfirmations but act. If the user asks you to update something, fetch the contents first so that you know what it needs to be updated to. keep or update any html comments that might exist since they are needed for WordPresses gutenberg html. Unless the user says otherwise, the URL the instructions refer to is "'+ currentUrl + '". In case the change needs to be done to the WordPress database, respond with PHP code that loads wordpress with `include "wordpress/wp-load.php";` and use WordPress php functions to do the change.'
+						content: 'You\'re here to help the user update their WordPress page. Instead of just telling the user what to do, use a function call to do the updates yourself. Dont ask for reconfirmations but act. Only if the user asks you to update page contents, fetch the contents first so that you know what it needs to be updated to. keep or update any html comments that might exist since they are needed for WordPresses gutenberg html. Unless the user says otherwise, the URL the instructions refer to is "'+ currentUrl + '"'
 					},
 					{
 						role: 'user',
@@ -479,6 +479,19 @@
 						},
 					},
 					required: [ 'path', 'post_content' ],
+				}			},
+			{
+				name: "navigate_to_page",
+				description: "Tell the user to go the specific URL",
+				parameters: {
+					type: "object",
+					properties: {
+						path: {
+							type: "string",
+							description: "The relative URL",
+						},
+					},
+					required: [ 'path' ],
 				}
 			},
 			{
@@ -497,7 +510,7 @@
 			},
 
 			];
-			openAI( data, async function( result, code ) {
+			openAI( data, async function( result, code, goTo ) {
 				bot.removeChild( document.getElementById('spinner') );
 				const details = document.createElement( 'details' );
 				const summary = document.createElement( 'summary' );
@@ -507,7 +520,7 @@
 				details.appendChild(summary)
 				details.appendChild(c);
 				bot.appendChild( details );
-				client.goTo( '/' );
+				if ( goTo ) client.goTo( goTo );
 			}, function( error, code ) {
 				bot.removeChild( document.getElementById('spinner') );
 				const details = document.createElement( 'details' );
@@ -600,6 +613,11 @@
 				}).text;
 
 			},
+			navigate_to_page: async function( vars ) {
+				await client.isReady;
+				console.log( vars.path );
+				client.goTo( vars.path );
+			},
 			replace_partial_page_contents: async function( vars ) {
 				document.querySelector('#status').textContent = 'Replacing page contents...';
 				vars.defaultFrontpageContent = defaultFrontpageContent;
@@ -651,7 +669,7 @@
 				console.log('Executing', result.php_code);
 				await client.isReady;
 				return await client.run({
-					code: '<?php include "wordpress/wp-load.php"; ' + result.php_code,
+					code: '<?php include "wordpress/wp-load.php"; ' + result.php_code.replace( '<?php', '' ),
 				}).text || '';
 			}
 		}
@@ -688,7 +706,7 @@
 								content,
 							} );
 							if ( 'get_page_contents' !== responseData.choices[0].message.function_call.name ) {
-								return callback( responseData.choices[0].message.content || 'Done!', responseData.choices[0].message.function_call.arguments );
+								return callback( responseData.choices[0].message.content || 'Done!', responseData.choices[0].message.function_call.arguments, responseData.choices[0].message.function_call.name === 'navigate_to_page' ? null : currentUrl );
 							}
 							return openAI( data, callback, errorCallback );
 
