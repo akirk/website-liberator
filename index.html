@@ -349,7 +349,7 @@
 				}
 			}
 
-			if (event.key === "Enter" && ! history.includes( event.target.value ) ) {
+			if (event.key === "Enter" && ( ! history || ! history.includes( event.target.value ) ) ) {
 				history.push(event.target.value);
 				localStorage.setItem( 'chatHistory', JSON.stringify( history.slice( 0, 20 ) ) );
 				historyIndex = history.length;
